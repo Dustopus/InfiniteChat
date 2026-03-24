@@ -7,8 +7,10 @@ import com.dustopus.infinitechat.common.dto.contact.ContactDTO;
 import com.dustopus.infinitechat.common.exception.BusinessException;
 import com.dustopus.infinitechat.common.result.ErrorCode;
 import com.dustopus.infinitechat.common.snowflake.SnowflakeIdGenerator;
+import com.dustopus.infinitechat.common.dto.user.UserDTO;
 import com.dustopus.infinitechat.contact.mapper.ContactMapper;
 import com.dustopus.infinitechat.contact.mapper.FriendRequestMapper;
+import com.dustopus.infinitechat.contact.mapper.UserSearchMapper;
 import com.dustopus.infinitechat.contact.model.Contact;
 import com.dustopus.infinitechat.contact.model.FriendRequest;
 import com.dustopus.infinitechat.contact.service.ContactService;
@@ -34,6 +36,7 @@ public class ContactServiceImpl implements ContactService {
 
     private final ContactMapper contactMapper;
     private final FriendRequestMapper friendRequestMapper;
+    private final UserSearchMapper userSearchMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final SnowflakeIdGenerator snowflakeIdGenerator;
@@ -228,5 +231,13 @@ public class ContactServiceImpl implements ContactService {
         contact.setUpdatedAt(LocalDateTime.now());
         contactMapper.updateById(contact);
         stringRedisTemplate.delete(RedisConstants.CONTACT_LIST_PREFIX + userId);
+    }
+
+    @Override
+    public List<UserDTO> searchUsers(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        return userSearchMapper.searchUsers(keyword.trim());
     }
 }

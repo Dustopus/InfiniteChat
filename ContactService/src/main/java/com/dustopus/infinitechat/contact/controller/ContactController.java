@@ -1,6 +1,7 @@
 package com.dustopus.infinitechat.contact.controller;
 
 import com.dustopus.infinitechat.common.dto.contact.ContactDTO;
+import com.dustopus.infinitechat.common.dto.user.UserDTO;
 import com.dustopus.infinitechat.common.result.Result;
 import com.dustopus.infinitechat.contact.service.ContactService;
 import com.dustopus.infinitechat.contact.vo.FriendApplyRequest;
@@ -55,5 +56,10 @@ public class ContactController {
                                    @RequestParam String remark) {
         contactService.updateRemark(userId, friendId, remark);
         return Result.ok();
+    }
+
+    @GetMapping("/search")
+    public Result<List<UserDTO>> searchUsers(@RequestParam String keyword) {
+        return Result.ok(contactService.searchUsers(keyword));
     }
 }
