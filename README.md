@@ -1,11 +1,11 @@
 # InfiniteChat (千言)
+# InfiniteChat 
 
 > 基于分布式微服务架构的企业级即时通讯系统
 
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.5-green.svg)](https://spring.io/projects/spring-boot)
 [![Netty](https://img.shields.io/badge/Netty-4.1.108-blue.svg)](https://netty.io/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 ## 📖 项目简介
 
 InfiniteChat 是一个基于分布式微服务架构的即时通讯应用，支持单聊、群聊、聊天室等多种聊天模式。核心解决高并发场景下的实时消息推送、可靠消息投递、离线消息同步等技术难题。
@@ -194,5 +194,4 @@ POST /api/v1/moment/comment     — 评论
 详细的开发记录请查看：[开发者日志](docs/DEVELOPMENT_BLOG.md)
 
 ## 📝 License
-
-MIT License
+AGPL-3.0​ License
