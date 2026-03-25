@@ -23,6 +23,8 @@ public class GatewayConfig {
                         .uri("lb://NotifyService"))
                 .route("offline-service", r -> r.path("/api/v1/offline/**")
                         .uri("lb://OfflineService"))
+                .route("upload-service", r -> r.path("/api/v1/upload/**")
+                        .uri("lb://MomentService"))
                 .build();
     }
 }
