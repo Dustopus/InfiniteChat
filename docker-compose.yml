@@ -1,0 +1,405 @@
+# ============================================================
+# InfiniteChat - Docker Compose 一键部署
+# Author: Dustopus
+# ============================================================
+
+version: "3.8"
+
+services:
+  # ===================== 基础设施 =====================
+
+  mysql:
+    image: mysql:8.0
+    container_name: ic-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-InfiniteChat}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ic-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: ic-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ic-net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: ic-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zk-data:/var/lib/zookeeper/data
+      - zk-log:/var/lib/zookeeper/log
+    networks:
+      - ic-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: ic-kafka
+    depends_on:
+      zookeeper:
+        condition: service_started
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: ${KAFKA_BROKER_ID:-1}
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - ic-net
+
+  nacos:
+    image: nacos/nacos-server:v2.3.0
+    container_name: ic-nacos
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    environment:
+      MODE: ${NACOS_MODE:-standalone}
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: ${MYSQL_DATABASE:-InfiniteChat}
+      MYSQL_SERVICE_USER: root
+      MYSQL_SERVICE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      JVM_XMS: 256m
+      JVM_XMX: 512m
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - nacos-data:/home/nacos/data
+      - nacos-logs:/home/nacos/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ic-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: ic-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - ic-net
+
+  # ===================== 业务微服务 =====================
+
+  gateway-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: GatewayService
+        SERVICE_PORT: 8080
+    container_name: ic-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      NACOS_SERVER: nacos:8848
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ${JWT_SECRET:-InfiniteChatSecretKeyForJWTTokenGeneration2024}
+    depends_on:
+      nacos:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ic-net
+    restart: on-failure
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: AuthenticationService
+        SERVICE_PORT: 8082
+    container_name: ic-auth
+    ports:
+      - "8082:8082"
+    environment:
+      NACOS_SERVER: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ${JWT_SECRET:-InfiniteChatSecretKeyForJWTTokenGeneration2024}
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ic-net
+    restart: on-failure
+
+  contact-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: ContactService
+        SERVICE_PORT: 8083
+    container_name: ic-contact
+    ports:
+      - "8083:8083"
+    environment:
+      NACOS_SERVER: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ${JWT_SECRET:-InfiniteChatSecretKeyForJWTTokenGeneration2024}
+      KAFKA_SERVERS: kafka:29092
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ic-net
+    restart: on-failure
+
+  messaging-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: MessagingService
+        SERVICE_PORT: 8084
+    container_name: ic-messaging
+    ports:
+      - "8084:8084"
+    environment:
+      NACOS_SERVER: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ${JWT_SECRET:-InfiniteChatSecretKeyForJWTTokenGeneration2024}
+      KAFKA_SERVERS: kafka:29092
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ic-net
+    restart: on-failure
+
+  rtc-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: RealTimeCommunicationService
+        SERVICE_PORT: 8081
+    container_name: ic-rtc
+    ports:
+      - "8081:8081"
+      - "9090:9090"
+    environment:
+      NACOS_SERVER: nacos:8848
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ${JWT_SECRET:-InfiniteChatSecretKeyForJWTTokenGeneration2024}
+      KAFKA_SERVERS: kafka:29092
+    depends_on:
+      nacos:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ic-net
+    restart: on-failure
+
+  offline-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: OfflineService
+        SERVICE_PORT: 8085
+    container_name: ic-offline
+    ports:
+      - "8085:8085"
+    environment:
+      NACOS_SERVER: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ${JWT_SECRET:-InfiniteChatSecretKeyForJWTTokenGeneration2024}
+      KAFKA_SERVERS: kafka:29092
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ic-net
+    restart: on-failure
+
+  moment-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: MomentService
+        SERVICE_PORT: 8086
+    container_name: ic-moment
+    ports:
+      - "8086:8086"
+    environment:
+      NACOS_SERVER: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ${JWT_SECRET:-InfiniteChatSecretKeyForJWTTokenGeneration2024}
+      KAFKA_SERVERS: kafka:29092
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: infinitec-chat
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - ic-net
+    restart: on-failure
+
+  notify-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        MODULE: NotifyService
+        SERVICE_PORT: 8087
+    container_name: ic-notify
+    ports:
+      - "8087:8087"
+    environment:
+      NACOS_SERVER: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ${JWT_SECRET:-InfiniteChatSecretKeyForJWTTokenGeneration2024}
+      KAFKA_SERVERS: kafka:29092
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ic-net
+    restart: on-failure
+
+volumes:
+  mysql-data:
+  redis-data:
+  zk-data:
+  zk-log:
+  kafka-data:
+  nacos-data:
+  nacos-logs:
+  minio-data:
+
+networks:
+  ic-net:
+    driver: bridge
