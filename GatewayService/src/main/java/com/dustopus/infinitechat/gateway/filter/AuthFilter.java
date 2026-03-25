@@ -18,6 +18,7 @@ public class AuthFilter implements GlobalFilter, Ordered {
 
     private static final String[] WHITE_LIST = {
             "/api/v1/user/login",
+            "/api/v1/user/login/code",
             "/api/v1/user/register",
             "/api/v1/user/sms/send"
     };

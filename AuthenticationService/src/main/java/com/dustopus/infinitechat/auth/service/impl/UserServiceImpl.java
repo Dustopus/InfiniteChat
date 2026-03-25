@@ -6,9 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dustopus.infinitechat.auth.mapper.UserMapper;
 import com.dustopus.infinitechat.auth.model.User;
 import com.dustopus.infinitechat.auth.service.UserService;
-import com.dustopus.infinitechat.auth.vo.LoginRequest;
-import com.dustopus.infinitechat.auth.vo.LoginResponse;
-import com.dustopus.infinitechat.auth.vo.RegisterRequest;
+import com.dustopus.infinitechat.auth.vo.*;
 import com.dustopus.infinitechat.common.constant.RedisConstants;
 import com.dustopus.infinitechat.common.dto.user.UserDTO;
 import com.dustopus.infinitechat.common.exception.BusinessException;
@@ -115,6 +113,71 @@ public class UserServiceImpl implements UserService {
         response.setToken(token);
         response.setUser(toDTO(user));
         return response;
+    }
+
+    @Override
+    public LoginResponse loginByCode(LoginByCodeRequest request) {
+        String phone = request.getPhone();
+
+        // Verify SMS code
+        String key = RedisConstants.VERIFY_CODE_PREFIX + phone;
+        String cachedCode = stringRedisTemplate.opsForValue().get(key);
+        if (cachedCode == null || !cachedCode.equals(request.getCode())) {
+            throw new BusinessException(ErrorCode.VERIFICATION_CODE_ERROR);
+        }
+        stringRedisTemplate.delete(key);
+
+        // Find user by phone
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>().eq(User::getPhone, phone));
+        if (user == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+        if (user.getStatus() != 1) {
+            throw new BusinessException(ErrorCode.FORBIDDEN.getCode(), "账户已被封禁或注销");
+        }
+
+        String token = JwtUtil.generateToken(user.getUserId());
+
+        stringRedisTemplate.opsForValue().set(
+                RedisConstants.USER_TOKEN_PREFIX + user.getUserId(),
+                token,
+                RedisConstants.TOKEN_EXPIRE,
+                TimeUnit.SECONDS);
+
+        LoginResponse response = new LoginResponse();
+        response.setToken(token);
+        response.setUser(toDTO(user));
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public void updateProfile(Long userId, UpdateProfileRequest request) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        if (request.getUserName() != null) {
+            user.setUserName(request.getUserName());
+        }
+        if (request.getAvatar() != null) {
+            user.setAvatar(request.getAvatar());
+        }
+        if (request.getSignature() != null) {
+            user.setSignature(request.getSignature());
+        }
+        if (request.getGender() != null) {
+            user.setGender(request.getGender());
+        }
+        user.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(user);
+
+        // Update user info cache in Redis
+        String userKey = "user:info:" + userId;
+        stringRedisTemplate.opsForHash().put(userKey, "userName", user.getUserName());
+        stringRedisTemplate.opsForHash().put(userKey, "avatar", user.getAvatar());
     }
 
     @Override

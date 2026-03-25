@@ -1,10 +1,7 @@
 package com.dustopus.infinitechat.auth.controller;
 
 import com.dustopus.infinitechat.auth.service.UserService;
-import com.dustopus.infinitechat.auth.vo.LoginRequest;
-import com.dustopus.infinitechat.auth.vo.LoginResponse;
-import com.dustopus.infinitechat.auth.vo.RegisterRequest;
-import com.dustopus.infinitechat.auth.vo.SmsCodeRequest;
+import com.dustopus.infinitechat.auth.vo.*;
 import com.dustopus.infinitechat.common.result.Result;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -34,9 +31,21 @@ public class UserController {
         return Result.ok(userService.login(request));
     }
 
+    @PostMapping("/login/code")
+    public Result<LoginResponse> loginByCode(@RequestBody @Valid LoginByCodeRequest request) {
+        return Result.ok(userService.loginByCode(request));
+    }
+
     @GetMapping("/info")
     public Result<LoginResponse> getUserInfo(@RequestHeader("X-User-Id") Long userId) {
         return Result.ok(userService.getUserInfo(userId));
+    }
+
+    @PutMapping("/profile")
+    public Result<?> updateProfile(@RequestHeader("X-User-Id") Long userId,
+                                    @RequestBody UpdateProfileRequest request) {
+        userService.updateProfile(userId, request);
+        return Result.ok();
     }
 
     @PostMapping("/logout")
